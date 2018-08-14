@@ -22,118 +22,119 @@ public class Gamma implements ContinuousDistribution {
 
     private static final double M_E = 0.577215664901532860606512090082;
     private final DoubleTensor location;
-    private final DoubleTensor theta;
-    private final DoubleTensor k;
+    private final DoubleTensor scale;
+    private final DoubleTensor alpha;
 
     /**
-     * @param a      location
-     * @param theta  scale
-     * @param k      shape
-     * @return       a new ContinuousDistribution object
+     * <h3>Gamma Distribution</h3>
+     *
+     * @param location shifts the distribution
+     * @param scale    stretches/shrinks the distribution, must be greater than 0
+     * @param alpha    shape parameter (not to be confused with tensor shape)
+     * @see "Computer Generation of Statistical Distributions
+     * by Richard Saucier,
+     * ARL-TR-2168 March 2000,
+     * 5.1.11 page 23"
      */
-    public static ContinuousDistribution withParameters(DoubleTensor a, DoubleTensor theta, DoubleTensor k) {
-        return new Gamma(a, theta, k);
+    public static ContinuousDistribution withParameters(DoubleTensor location, DoubleTensor scale, DoubleTensor alpha) {
+        return new Gamma(location, scale, alpha);
     }
 
-    private Gamma(DoubleTensor a, DoubleTensor theta, DoubleTensor k) {
-        this.location = a;
-        this.theta = theta;
-        this.k = k;
+    private Gamma(DoubleTensor location, DoubleTensor scale, DoubleTensor alpha) {
+        this.location = location;
+        this.scale = scale;
+        this.alpha = alpha;
     }
 
+    /**
+     * @throws IllegalArgumentException if scale or alpha passed to {@link #withParameters(DoubleTensor location, DoubleTensor scale, DoubleTensor alpha)}
+     *                                  is less than or equal to 0
+     */
     @Override
     public DoubleTensor sample(int[] shape, KeanuRandom random) {
-        Tensor.FlattenedView<Double> aWrapped = location.getFlattenedView();
-        Tensor.FlattenedView<Double> thetaWrapped = theta.getFlattenedView();
-        Tensor.FlattenedView<Double> kWrapped = k.getFlattenedView();
+        Tensor.FlattenedView<Double> locationWrapped = location.getFlattenedView();
+        Tensor.FlattenedView<Double> scaleWrapped = scale.getFlattenedView();
+        Tensor.FlattenedView<Double> alphaWrapped = alpha.getFlattenedView();
 
         int length = ArrayUtil.prod(shape);
         double[] samples = new double[length];
         for (int i = 0; i < length; i++) {
-            samples[i] = sample(aWrapped.getOrScalar(i), thetaWrapped.getOrScalar(i), kWrapped.getOrScalar(i), random);
+            samples[i] = sample(locationWrapped.getOrScalar(i), scaleWrapped.getOrScalar(i), alphaWrapped.getOrScalar(i), random);
         }
 
         return DoubleTensor.create(samples, shape);
     }
 
-    private static double sample(double a, double theta, double k, KeanuRandom random) {
-        if (theta <= 0. || k <= 0.) {
-            throw new IllegalArgumentException("Invalid value for theta or k. Theta: " + theta + ". k: " + k);
+    private static double sample(double location, double scale, double alpha, KeanuRandom random) {
+        if (scale <= 0. || alpha <= 0.) {
+            throw new IllegalArgumentException("Invalid value for scale or alpha. Scale: " + scale + ". Alpha: " + alpha);
         }
-        final double A = 1. / sqrt(2. * k - 1.);
-        final double B = k - log(4.);
-        final double Q = k + 1. / A;
+        final double A = 1. / sqrt(2. * alpha - 1.);
+        final double B = alpha - log(4.);
+        final double Q = alpha + 1. / A;
         final double T = 4.5;
         final double D = 1. + log(T);
-        final double C = 1. + k / M_E;
+        final double C = 1. + alpha / M_E;
 
-        if (k < 1.) {
-            return sampleWhileKLessThanOne(C, k, a, theta, random);
-        } else if (k == 1.0) return exponentialSample(a, theta, random);
-        else {
+        if (alpha < 1.) {
+            return sampleWhileKLessThanOne(C, alpha, location, scale, random);
+        } else if (alpha == 1.0) {
+            return exponentialSample(location, scale, random);
+        } else {
             while (true) {
                 double p1 = random.nextDouble();
                 double p2 = random.nextDouble();
                 double v = A * log(p1 / (1. - p1));
-                double y = k * exp(v);
+                double y = alpha * exp(v);
                 double z = p1 * p1 * p2;
                 double w = B + Q * v - y;
-                if (w + D - T * z >= 0. || w >= log(z)) return a + theta * y;
+                if (w + D - T * z >= 0. || w >= log(z)) return location + scale * y;
             }
         }
     }
 
-    private static double sampleWhileKLessThanOne(double c, double k, double a, double theta, KeanuRandom random) {
+    private static double sampleWhileKLessThanOne(double c, double alpha, double location, double scale, KeanuRandom random) {
         while (true) {
             double p = c * random.nextDouble();
             if (p > 1.) {
-                double y = -log((c - p) / k);
-                if (random.nextDouble() <= pow(y, k - 1.)) return a + theta * y;
+                double y = -log((c - p) / alpha);
+                if (random.nextDouble() <= pow(y, alpha - 1.)) return location + scale * y;
             } else {
-                double y = pow(p, 1. / k);
-                if (random.nextDouble() <= exp(-y)) return a + theta * y;
+                double y = pow(p, 1. / alpha);
+                if (random.nextDouble() <= exp(-y)) return location + scale * y;
             }
         }
     }
 
-    /**
-     * @param location location
-     * @param lambda   shape
-     * @param random   source of randomness
-     * @return a random number from the Exponential distribution
-     */
-    private static double exponentialSample(double location, double lambda, KeanuRandom random) {
-        if (lambda <= 0.0) {
-            throw new IllegalArgumentException("Invalid value for b");
-        }
-        return location - lambda * Math.log(random.nextDouble());
+    private static double exponentialSample(double location, double alpha, KeanuRandom random) {
+        return location - alpha * Math.log(random.nextDouble());
     }
 
     @Override
     public DoubleTensor logProb(DoubleTensor x) {
-        final DoubleTensor aMinusXOverTheta = location.minus(x).divInPlace(theta);
-        final DoubleTensor kLnTheta = k.times(theta.log());
-        final DoubleTensor xMinusAPowKMinus1 = x.minus(location).powInPlace(k.minus(1));
-        final DoubleTensor lnXMinusAToKMinus1 = ((xMinusAPowKMinus1).divInPlace(k.apply(org.apache.commons.math3.special.Gamma::gamma))).logInPlace();
-        return aMinusXOverTheta.minusInPlace(kLnTheta).plusInPlace(lnXMinusAToKMinus1);
+        final DoubleTensor aMinusXOverScale = location.minus(x).divInPlace(scale);
+        final DoubleTensor alphaLnScale = alpha.times(scale.log());
+        final DoubleTensor xMinusAPowAlphaMinus1 = x.minus(location).powInPlace(alpha.minus(1.));
+        final DoubleTensor lnXMinusAToAlphaMinus1 = ((xMinusAPowAlphaMinus1).divInPlace(alpha.apply(org.apache.commons.math3.special.Gamma::gamma))).logInPlace();
+        return aMinusXOverScale.minusInPlace(alphaLnScale).plusInPlace(lnXMinusAToAlphaMinus1);
     }
 
     @Override
     public Diffs dLogProb(DoubleTensor x) {
         final DoubleTensor xMinusLocation = x.minus(location);
         final DoubleTensor locationMinusX = location.minus(x);
-        final DoubleTensor kMinus1 = k.minus(1.);
-        final DoubleTensor oneOverTheta = theta.reciprocal();
+        final DoubleTensor alphaMinus1 = alpha.minus(1.);
+        final DoubleTensor oneOverScale = scale.reciprocal();
 
-        final DoubleTensor dLogPdx = kMinus1.div(xMinusLocation).minusInPlace(oneOverTheta);
-        final DoubleTensor dLogPdlocation = kMinus1.div(locationMinusX).plusInPlace(oneOverTheta);
-        final DoubleTensor dLogPdtheta = theta.times(k).plus(locationMinusX).divInPlace(theta.pow(2.)).unaryMinusInPlace();
-        final DoubleTensor dLogPdk = xMinusLocation.logInPlace().minusInPlace(theta.log()).minusInPlace(k.apply(org.apache.commons.math3.special.Gamma::digamma));
+        final DoubleTensor dLogPdlocation = alphaMinus1.div(locationMinusX).plusInPlace(oneOverScale);
+        final DoubleTensor dLogPdscale = scale.times(alpha).plus(locationMinusX).divInPlace(scale.pow(2.)).unaryMinusInPlace();
+        final DoubleTensor dLogPdalpha = xMinusLocation.logInPlace().minusInPlace(scale.log()).minusInPlace(alpha.apply(org.apache.commons.math3.special.Gamma::digamma));
+        final DoubleTensor dLogPdx = alphaMinus1.div(xMinusLocation).minusInPlace(oneOverScale);
 
         return new Diffs()
         .put(A, dLogPdlocation)
-        .put(THETA, dLogPdtheta)
-        .put(K, dLogPdk)
+        .put(THETA, dLogPdscale)
+        .put(K, dLogPdalpha)
         .put(X, dLogPdx);
     }
 
