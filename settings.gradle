@@ -1,3 +1,5 @@
 include 'keanu-project',
         'keanu-docs:code',
-        'keanu-examples:coalMiningDisasters'
+        'keanu-examples:coalMiningDisasters',
+        'keanu-examples:baseball',
+        'keanu-examples:gelman-schools'
