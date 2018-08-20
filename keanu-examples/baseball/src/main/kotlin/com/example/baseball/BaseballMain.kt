@@ -1,5 +1,6 @@
 package com.example.baseball
 
+import io.improbable.keanu.algorithms.NetworkSamples
 import io.improbable.keanu.algorithms.mcmc.Hamiltonian
 import io.improbable.keanu.algorithms.mcmc.MetropolisHastings
 import io.improbable.keanu.algorithms.mcmc.NUTS
@@ -37,23 +38,25 @@ fun main(args: Array<String>) {
 
     val bayesNet = BayesianNetwork(ys.connectedGraph)
 
-    val shuffle = { listOf<DoubleVertex>(phi, kBase, thetas).forEach { it.setAndCascade(it.sample()) } }
+    fun shuffle() { listOf<DoubleVertex>(phi, kBase, thetas).forEach { it.setAndCascade(it.sample()) } }
+
+    fun printMeans(samples: NetworkSamples) {
+        println("MH mean of phi: ${
+        samples.get(phi).asList().map { it.scalar() } .mean()
+        }, Mean of kappa: ${
+        samples.get(kBase).asList().map { it.exp().times(1.5).scalar() } .mean()
+        }")
+    }
 
     shuffle()
     val mhSamples = MetropolisHastings.withDefaultConfig().getPosteriorSamples(
         bayesNet, bayesNet.latentVertices, 10_000).drop(2_000).downSample(4)
-
-    val mhMeanPhi = mhSamples.get(phi).asList().map { it.scalar() } .mean()
-    val mhMeanKappa = mhSamples.get(kBase).asList().map { it.exp().times(1.5).scalar() } .mean()
-    println("MH mean of phi: $mhMeanPhi, Mean of kappa: $mhMeanKappa")
+    printMeans(mhSamples)
 
     shuffle()
     val hmcSamples = Hamiltonian.getPosteriorSamples(bayesNet, bayesNet.latentVertices,
         1_000, 10, 0.1).drop(200)
-
-    val hmcMeanPhi = hmcSamples.get(phi).asList().map { it.scalar() } .mean()
-    val hmcMeanKappa = mhSamples.get(kBase).asList().map { it.exp().times(1.5).scalar() } .mean()
-    println("HMC mean of phi: $hmcMeanPhi, Mean of kappa: $hmcMeanKappa")
+    printMeans(hmcSamples)
 
     shuffle()
     val nutsSamples = try {
@@ -64,10 +67,7 @@ fun main(args: Array<String>) {
         println("${phi.value.scalar()}, ${kappa.value.scalar()}")
         throw e
     }
-
-    val nutsMeanPhi = nutsSamples.get(phi).asList().map { it.scalar() } .mean()
-    val nutsMeanKappa = nutsSamples.get(kBase).asList().map { it.exp().times(1.5).scalar() } .mean()
-    println("NUTS mean of phi: $nutsMeanPhi, Mean of kappa: $nutsMeanKappa")
+    printMeans(nutsSamples)
 
 }
 
@@ -79,7 +79,7 @@ class MyBinomialVertex(private val p: DoubleVertex, private val n: IntegerVertex
         if (!isObserved || n !is ConstantIntegerVertex) {
             throw IllegalStateException("Can only calculate dLogProb if n is constant and k is observed!")
         }
-        
+
         val pVal = p.value
         val nVal = n.value.toDouble()
         val kVal = value.toDouble()
