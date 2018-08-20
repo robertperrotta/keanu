@@ -24,6 +24,6 @@ fun main(args: Array<String>) {
     val bayesNet = BayesianNetwork(obs.connectedGraph)
 
     val samples = NUTS.getPosteriorSamples(bayesNet, bayesNet.latentVertices,
-        1000, 10, 0.234, KeanuRandom.getDefaultRandom())
+        1000, 10, 0.90, KeanuRandom.getDefaultRandom())
 
 }
